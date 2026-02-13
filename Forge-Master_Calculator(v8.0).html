@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>종합 스탯 비교 계산기 v8.0 (OCR + 분석)</title>
+    
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+
+    <style>
+        /* ==================== 전역 스타일 ==================== */
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+            --original-color: #667eea;
+            --new-color: #764ba2;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --result-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            
+            --bg-body: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            --bg-card: #ffffff;
+            --bg-calc: #f0f9ff;
+            --bg-priority: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            
+            --text-main: #333333;
+            --text-sub: #666666;
+            --border-color: #e0e0e0;
+            --input-bg: #ffffff;
+            
+            --spacing-sm: 10px;
+            --spacing-md: 15px;
+            --spacing-lg: 20px;
+            --spacing-xl: 30px;
+            --font-sm: 13px;
+            --font-md: 15px;
+            --font-lg: 18px;
+            --font-xl: 24px;
+        }
+
+        /* 다크모드 변수 */
+        [data-theme="dark"] {
+            --primary-color: #a78bfa;
+            --secondary-color: #c4b5fd;
+            --original-color: #a78bfa;
+            --new-color: #c4b5fd;
+            --success-color: #34d399;
+            --warning-color: #fbbf24;
+            --result-gradient: linear-gradient(135deg, #4c1d95, #6d28d9);
+            
+            --bg-body: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+            --bg-card: #1f2937;
+            --bg-calc: #374151;
+            --bg-priority: #4b5563;
+            
+            --text-main: #f3f4f6;
+            --text-sub: #9ca3af;
+            --border-color: #374151;
+            --input-bg: #374151;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; transition: background-color 0.3s, border-color 0.3s, color 0.3s; }
+        
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--bg-body);
+            min-height: 100vh;
+            padding: var(--spacing-lg);
+            color: var(--text-main);
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .calculator {
+            background: var(--bg-card);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: var(--spacing-xl);
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        h1 { text-align: center; color: var(--primary-color); margin-bottom: 10px; font-size: var(--font-xl); }
+        .subtitle { text-align: center; color: var(--text-sub); margin-bottom: var(--spacing-lg); font-size: var(--font-sm); }
+
+        /* 툴바 */
+        .toolbar { display: flex; gap: var(--spacing-sm); margin-bottom: var(--spacing-lg); flex-wrap: wrap; justify-content: center; }
+        .toolbar-btn {
+            padding: 12px 20px; border: 2px solid var(--primary-color); background: var(--bg-card);
+            color: var(--primary-color); border-radius: 8px; font-weight: 600; cursor: pointer;
+        }
+        .toolbar-btn:hover { background: var(--primary-color); color: white; transform: translateY(-2px); }
+        .toolbar-btn.success { border-color: var(--success-color); color: var(--success-color); }
+        .toolbar-btn.success:hover { background: var(--success-color); color: white; }
+
+        /* 장비 섹션 */
+        .equipment-section { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-lg); margin-bottom: var(--spacing-lg); }
+        .equipment-card { 
+            background: var(--bg-card); padding: var(--spacing-lg); border-radius: 15px; 
+            border: 2px solid var(--border-color); position: relative; 
+        }
+        .equipment-card.original { border-color: var(--original-color); }
+        .equipment-card.new { border-color: var(--new-color); }
+
+        .equipment-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-md); }
+        .equipment-header h2 { font-size: var(--font-lg); color: var(--text-main); }
+        
+        /* 버튼 그룹 (스캔, 복사) */
+        .header-actions { display: flex; gap: 5px; }
+        .btn-mini {
+            padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: none; color: white;
+        }
+        .btn-scan { background: #e91e63; }
+        .btn-copy { background: var(--primary-color); }
+
+        /* 입력 필드 */
+        .input-group { margin-bottom: var(--spacing-sm); }
+        .input-group label { display: block; margin-bottom: 5px; color: var(--text-sub); font-weight: 600; font-size: var(--font-sm); }
+        .input-group input { 
+            width: 100%; padding: 12px; border: 2px solid var(--border-color); border-radius: 8px; 
+            background: var(--input-bg); color: var(--text-main); font-size: var(--font-md);
+        }
+        .input-group input:focus { outline: none; border-color: var(--primary-color); }
+        
+        /* v4.3 통합: 분석 및 결과 스타일 */
+        .result-summary {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            color: white; padding: var(--spacing-md); border-radius: 10px;
+            margin-top: var(--spacing-md); text-align: center;
+        }
+        .result-summary h3 { font-size: var(--font-md); margin-bottom: 5px; color: white !important; }
+        .result-value { font-size: var(--font-lg); font-weight: bold; margin-bottom: 5px; }
+        
+        .stat-breakdown { background: rgba(255,255,255,0.2); padding: 8px; border-radius: 8px; font-size: 12px; }
+        .stat-item { display: flex; justify-content: space-between; margin: 3px 0; }
+        
+        .toggle-details-btn {
+            background: rgba(255,255,255,0.3); border: none; color: white; padding: 5px 10px;
+            border-radius: 5px; font-size: 11px; cursor: pointer; margin-top: 5px; width: 100%;
+        }
+
+        /* 계산 과정 상세 */
+        .calculation-details {
+            background: var(--bg-calc); border: 2px solid var(--primary-color);
+            border-radius: 10px; padding: 10px; margin-top: 10px; display: none;
+        }
+        .calculation-details.show { display: block; }
+        .calculation-details h4 { color: var(--primary-color); margin-bottom: 5px; font-size: 14px; }
+        .calc-step { font-size: 12px; color: var(--text-sub); margin: 3px 0; padding-left: 10px; }
+
+        /* 우선순위 섹션 */
+        .priority-section {
+            background: var(--bg-priority); border-radius: 10px; padding: 10px;
+            margin-top: 10px; display: none;
+        }
+        .priority-section.show { display: block; }
+        .priority-section h4 { color: #92400e; margin-bottom: 5px; font-size: 14px; }
+        [data-theme="dark"] .priority-section h4 { color: #fbbf24; }
+
+        .priority-item {
+            background: var(--bg-card); padding: 8px; border-radius: 6px; margin: 5px 0;
+            font-size: 12px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .priority-rank {
+            background: var(--warning-color); color: white; width: 20px; height: 20px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px;
+        }
+        .priority-desc { flex: 1; margin: 0 10px; color: var(--text-main); }
+        .priority-impact { font-weight: bold; color: var(--success-color); }
+
+        /* 정보 박스 */
+        .info-box {
+            background: #fff3cd; border: 2px solid #ffc107; border-radius: 10px;
+            padding: var(--spacing-md); margin-top: var(--spacing-lg); color: #856404;
+        }
+        [data-theme="dark"] .info-box { background: #4b3d1b; border-color: #d97706; color: #fcd34d; }
+        .info-box h4 { margin-bottom: 5px; }
+        .info-box p { font-size: 13px; line-height: 1.6; }
+
+        /* 효과 및 로딩 */
+        .flash { animation: flash 1s; border-color: #e91e63 !important; }
+        @keyframes flash { 0% { background: rgba(233,30,99,0.1); } 100% { background: transparent; } }
+
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 10; border-radius: 13px;
+            display: none; flex-direction: column; justify-content: center; align-items: center; color: white;
+        }
+        .overlay.active { display: flex; }
+        .spinner { width: 40px; height: 40px; border: 4px solid #fff; border-top: 4px solid var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 최종 비교 결과 섹션 */
+        .result-section { 
+            background: var(--result-gradient); padding: var(--spacing-xl); border-radius: 15px; 
+            color: white; text-align: center; display: none; margin-top: var(--spacing-lg); 
+        }
+        .result-section.show { display: block; animation: slideUp 0.5s; }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); margin-top: var(--spacing-lg); }
+        .detail-card { background: rgba(255,255,255,0.15); padding: var(--spacing-md); border-radius: 10px; }
+        .detail-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.2); font-size: var(--font-sm); }
+        
+        .recommendation {
+            background: rgba(255,255,255,0.3); padding: var(--spacing-lg); border-radius: 10px;
+            font-size: var(--font-lg); font-weight: bold; margin-top: var(--spacing-lg); white-space: pre-line;
+        }
+
+        .calculate-btn {
+            width: 100%; padding: var(--spacing-md); background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white; border: none; border-radius: 10px; font-size: var(--font-lg); font-weight: bold; cursor: pointer;
+            margin-top: 20px;
+        }
+
+        /* 다크모드 토글 */
+        .theme-toggle {
+            position: fixed; top: 20px; right: 20px; width: 50px; height: 50px;
+            border-radius: 50%; background: var(--bg-card); border: 2px solid var(--primary-color);
+            cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px; z-index: 1000;
+        }
+
+        /* 반응형 */
+        @media (max-width: 768px) {
+            .equipment-section, .detail-grid { grid-template-columns: 1fr; }
+            .toolbar { flex-direction: column; }
+            .toolbar-btn { width: 100%; }
+        }
+
+        /* 모달 및 토스트 */
+        .modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center; }
+        .modal.show { display: flex; }
+        .modal-content { background: var(--bg-card); padding: 20px; border-radius: 15px; width: 90%; max-width: 400px; color: var(--text-main); }
+        .toast { position: fixed; bottom: 20px; right: 20px; background: var(--success-color); color: white; padding: 15px; border-radius: 8px; display: none; z-index: 3000; }
+        .toast.show { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity:0; transform: translateY(20px); } to { opacity:1; } }
+
+    </style>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#667eea">
+</head>
+<body>
+
+    <button class="theme-toggle" onclick="toggleTheme()" title="다크모드 전환">
+        <span id="theme-icon">🌙</span>
+    </button>
+
+    <div class="calculator">
+        <h1>⚔️ 종합 스탯 비교 계산기 v8.0</h1>
+        <p class="subtitle">OCR 자동 인식 • 실시간 분석 • 개선 추천</p>
+
+        <div class="toolbar">
+            <button class="toolbar-btn" onclick="saveData()">💾 저장</button>
+            <button class="toolbar-btn" onclick="showLoadModal()">📂 불러오기</button>
+            <button class="toolbar-btn success" onclick="shareURL()">🔗 URL 공유</button>
+            <button class="toolbar-btn" onclick="resetAll()">🔄 초기화</button>
+        </div>
+
+        <div class="equipment-section">
+            <div class="equipment-card original">
+                <div class="overlay" id="loading-orig"><div class="spinner"></div><span id="status-orig">이미지 분석 중...</span></div>
+                <div class="equipment-header">
+                    <h2>🛡️ 원래 장비</h2>
+                    <div class="header-actions">
+                        <input type="file" id="file-orig" style="display:none" accept="image/*" onchange="processImage(this, 'orig')">
+                        <button class="btn-mini btn-scan" onclick="document.getElementById('file-orig').click()">📷 스캔</button>
+                        <button class="btn-mini btn-copy" onclick="copyToNew()">→ 복사</button>
+                    </div>
+                </div>
+                
+                <div id="inputs-orig">
+                    </div>
+
+                <div class="result-summary">
+                    <h3>📊 종합 분석</h3>
+                    <div class="result-value" data-result="total_recovery" data-type="orig">총 회복: -</div>
+                    <div class="stat-breakdown">
+                        <div class="stat-item"><span>실제 DPS:</span><span data-result="real_dps" data-type="orig">-</span></div>
+                        <div class="stat-item"><span>유효 체력:</span><span data-result="effective_hp" data-type="orig">-</span></div>
+                        <div class="stat-item"><span>생존 시간:</span><span data-result="survive_time" data-type="orig">-</span></div>
+                    </div>
+                    <button class="toggle-details-btn" onclick="toggleDetails('orig')">📊 계산 과정 & 추천 보기</button>
+                </div>
+
+                <div class="calculation-details" data-details="orig">
+                    <h4>🔍 계산 과정</h4>
+                    <div data-calc-steps="orig"></div>
+                </div>
+
+                <div class="priority-section" data-priority="orig">
+                    <h4>⭐ 개선 우선순위</h4>
+                    <div data-priority-list="orig"></div>
+                </div>
+            </div>
+
+            <div class="equipment-card new">
+                <div class="overlay" id="loading-new"><div class="spinner"></div><span id="status-new">이미지 분석 중...</span></div>
+                <div class="equipment-header">
+                    <h2>✨ 새 장비</h2>
+                    <div class="header-actions">
+                        <input type="file" id="file-new" style="display:none" accept="image/*" onchange="processImage(this, 'new')">
+                        <button class="btn-mini btn-scan" onclick="document.getElementById('file-new').click()">📷 스캔</button>
+                        <button class="btn-mini btn-copy" onclick="copyToOrig()">← 복사</button>
+                    </div>
+                </div>
+                
+                <div id="inputs-new">
+                    </div>
+
+                <div class="result-summary">
+                    <h3>📊 종합 분석</h3>
+                    <div class="result-value" data-result="total_recovery" data-type="new">총 회복: -</div>
+                    <div class="stat-breakdown">
+                        <div class="stat-item"><span>실제 DPS:</span><span data-result="real_dps" data-type="new">-</span></div>
+                        <div class="stat-item"><span>유효 체력:</span><span data-result="effective_hp" data-type="new">-</span></div>
+                        <div class="stat-item"><span>생존 시간:</span><span data-result="survive_time" data-type="new">-</span></div>
+                    </div>
+                    <button class="toggle-details-btn" onclick="toggleDetails('new')">📊 계산 과정 & 추천 보기</button>
+                </div>
+
+                <div class="calculation-details" data-details="new">
+                    <h4>🔍 계산 과정</h4>
+                    <div data-calc-steps="new"></div>
+                </div>
+
+                <div class="priority-section" data-priority="new">
+                    <h4>⭐ 개선 우선순위</h4>
+                    <div data-priority-list="new"></div>
+                </div>
+            </div>
+        </div>
+
+        <button class="calculate-btn" onclick="compareEquipment()">🔍 종합 비교하기</button>
+
+        <div class="result-section" id="resultSection">
+            <h2>📊 최종 비교 결과</h2>
+            <div class="detail-grid">
+                <div class="detail-card">
+                    <h4>⚔️ DPS (공격력)</h4>
+                    <div class="detail-item"><span>원래:</span> <span data-res="dps-orig">-</span></div>
+                    <div class="detail-item"><span>새장비:</span> <span data-res="dps-new">-</span></div>
+                    <div class="detail-item" style="font-weight:bold;"><span>차이:</span> <span data-res="dps-diff">-</span></div>
+                </div>
+                <div class="detail-card">
+                    <h4>🛡️ 유효 체력</h4>
+                    <div class="detail-item"><span>원래:</span> <span data-res="ehp-orig">-</span></div>
+                    <div class="detail-item"><span>새장비:</span> <span data-res="ehp-new">-</span></div>
+                    <div class="detail-item" style="font-weight:bold;"><span>차이:</span> <span data-res="ehp-diff">-</span></div>
+                </div>
+                <div class="detail-card">
+                    <h4>💚 초당 회복</h4>
+                    <div class="detail-item"><span>원래:</span> <span data-res="rec-orig">-</span></div>
+                    <div class="detail-item"><span>새장비:</span> <span data-res="rec-new">-</span></div>
+                    <div class="detail-item" style="font-weight:bold;"><span>차이:</span> <span data-res="rec-diff">-</span></div>
+                </div>
+                <div class="detail-card">
+                    <h4>⏱️ 생존 시간</h4>
+                    <div class="detail-item"><span>원래:</span> <span data-res="sur-orig">-</span></div>
+                    <div class="detail-item"><span>새장비:</span> <span data-res="sur-new">-</span></div>
+                    <div class="detail-item" style="font-weight:bold;"><span>차이:</span> <span data-res="sur-diff">-</span></div>
+                </div>
+            </div>
+            <div class="recommendation" id="recommendation"></div>
+        </div>
+
+        <div class="info-box">
+            <h4>💡 새로운 기능 (v8.0)</h4>
+            <p>
+            <strong>📷 OCR 스캔:</strong> 장비 스크린샷을 찍어 올리면 자동으로 스탯을 입력합니다.<br>
+            <strong>📊 실시간 분석:</strong> 입력 즉시 개별 장비의 종합 성능과 계산 과정을 분석합니다.<br>
+            <strong>⭐ 추천 시스템:</strong> 현재 스탯에서 효율이 가장 좋은 능력치(우선순위)를 알려줍니다.<br>
+            <strong>🔗 공유 & 저장:</strong> 설정을 URL로 공유하거나 브라우저에 저장할 수 있습니다.
+            </p>
+        </div>
+    </div>
+
+    <div class="modal" id="saveModal">
+        <div class="modal-content">
+            <h3>💾 설정 저장</h3>
+            <input type="text" id="saveName" placeholder="설정 이름 (예: 보스용)" style="width:100%; padding:10px; margin:10px 0; border:1px solid #ddd; border-radius:5px;">
+            <div style="display:flex; gap:10px;">
+                <button class="toolbar-btn" style="flex:1" onclick="confirmSave()">저장</button>
+                <button class="toolbar-btn" style="flex:1; border-color:#999; color:#999;" onclick="document.getElementById('saveModal').classList.remove('show')">취소</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="loadModal">
+        <div class="modal-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3>📂 저장된 설정</h3>
+                <button onclick="document.getElementById('loadModal').classList.remove('show')" style="background:none; border:none; font-size:20px; cursor:pointer;">×</button>
+            </div>
+            <div id="savedList" style="max-height:300px; overflow-y:auto;"></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">메시지</div>
+
+<script>
+    // ==================== 설정 및 데이터 ====================
+    const BASE_URL = "https://example-game-calc.com";
+    const CONFIG = {
+        STORAGE_KEY: 'game_calc_v8',
+        ENEMY_DPS: 1000000,
+        UNIT_MILLION: 1000000,
+        UNIT_THOUSAND: 1000,
+        MAX_BLOCK: 99.9,
+        DEBOUNCE_DELAY: 300
+    };
+
+    const FIELDS = [
+        { id: 'health', label: '총 체력 (HP)', type: 'prefix', keywords: ['총 체력', '체력'] },
+        { id: 'damage', label: '총 피해 (DPS)', type: 'prefix', keywords: ['총 피해', '피해', '공격력'] },
+        { id: 'crit_rate', label: '치명타 확률 (%)', type: 'suffix', keywords: ['치명타 확률', '치명타확률'] },
+        { id: 'crit_dmg', label: '치명타 피해 (%)', type: 'suffix', keywords: ['치명타 피해', '치명타피해'] },
+        { id: 'skill_dmg', label: '스킬 피해 (%)', type: 'suffix', keywords: ['스킬 피해', '스킬피해'] },
+        { id: 'double', label: '더블 찬스 (%)', type: 'suffix', keywords: ['더블 찬스', '더블찬스', '더블'] },
+        { id: 'atk_speed', label: '공격 속도 (%)', type: 'suffix', keywords: ['공격 속도', '공격속도'] },
+        { id: 'block', label: '블록 확률 (%)', type: 'suffix', keywords: ['블록 확률', '블록'] },
+        { id: 'regen', label: '체력 재생 (%)', type: 'suffix', keywords: ['체력 재생', '체력재생', '재생'] },
+        { id: 'lifesteal', label: '생명력 흡수 (%)', type: 'suffix', keywords: ['생명력 흡수', '흡수'] }
+    ];
+
+    let debounceTimer = null;
+
+    // ==================== 초기화 ====================
+    function init() {
+        ['orig', 'new'].forEach(t => {
+            const container = document.getElementById(`inputs-${t}`);
+            container.innerHTML = FIELDS.map(f => `
+                <div class="input-group">
+                    <label>${f.label}</label>
+                    <input type="text" data-stat="${f.id}" data-type="${t}" placeholder="0" inputmode="decimal">
+                </div>
+            `).join('');
+        });
+
+        // 실시간 업데이트 이벤트 연결
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('input', updateIndividualResults);
+        });
+
+        if(localStorage.getItem('theme') === 'dark') toggleTheme(true);
+        loadFromURL();
+    }
+
+    // ==================== 유틸리티 ====================
+    function parseVal(v) {
+        if(!v) return 0;
+        let s = v.toString().toLowerCase().replace(/,/g,'').trim();
+        let m = 1;
+        if(s.includes('m')) m = CONFIG.UNIT_MILLION;
+        else if(s.includes('k')) m = CONFIG.UNIT_THOUSAND;
+        return parseFloat(s) * m;
+    }
+    
+    function fmt(n) {
+        if(n >= CONFIG.UNIT_MILLION) return (n/CONFIG.UNIT_MILLION).toFixed(2)+'m';
+        if(n >= CONFIG.UNIT_THOUSAND) return (n/CONFIG.UNIT_THOUSAND).toFixed(2)+'k';
+        return Math.round(n).toLocaleString();
+    }
+
+    function toggleTheme(forceDark = false) {
+        const html = document.documentElement;
+        const isDark = html.getAttribute('data-theme') === 'dark';
+        const newTheme = (isDark && !forceDark) ? 'light' : 'dark';
+        html.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        document.getElementById('theme-icon').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+    }
+
+    function toggleDetails(type) {
+        document.querySelector(`[data-details="${type}"]`).classList.toggle('show');
+        document.querySelector(`[data-priority="${type}"]`).classList.toggle('show');
+    }
+
+    // ==================== 핵심 계산 로직 (v4.3 통합) ====================
+    function getStats(type) {
+        const getRaw = (id) => parseFloat(document.querySelector(`input[data-stat="${id}"][data-type="${type}"]`).value) || 0;
+        const getVal = (id) => {
+            const val = document.querySelector(`input[data-stat="${id}"][data-type="${type}"]`).value;
+            return parseVal(val);
+        };
+
+        return {
+            health: getVal('health'),
+            damage: getVal('damage'),
+            crit_rate: getRaw('crit_rate'),
+            crit_dmg: getRaw('crit_dmg'),
+            skill_dmg: getRaw('skill_dmg'),
+            double: getRaw('double'),
+            atk_speed: getRaw('atk_speed'),
+            block: Math.min(getRaw('block'), CONFIG.MAX_BLOCK),
+            regen: getRaw('regen'),
+            lifesteal: getRaw('lifesteal')
+        };
+    }
+
+    function calculateDetailed(s) {
+        const atkSpeedMultiplier = 1 + (s.atk_speed / 100);
+        const critMultiplier = 1 + (s.crit_rate / 100) * (s.crit_dmg / 100);
+        const skillMultiplier = 1 + (s.skill_dmg / 100);
+        const doubleMultiplier = 1 + (s.double / 100);
+        
+        const realDPS = s.damage * atkSpeedMultiplier * critMultiplier * skillMultiplier * doubleMultiplier;
+        const effectiveHP = s.health / (1 - (s.block / 100));
+
+        const regenRecovery = s.health * (s.regen / 100);
+        const lifestealRecovery = realDPS * (s.lifesteal / 100);
+        const baseRecovery = regenRecovery + lifestealRecovery;
+        const doubleBonus = baseRecovery * (s.double / 100);
+        const totalRecovery = baseRecovery + doubleBonus;
+
+        const netDamageTaken = CONFIG.ENEMY_DPS - totalRecovery;
+        const surviveTime = netDamageTaken > 0 ? effectiveHP / netDamageTaken : 999999;
+
+        return {
+            realDPS, effectiveHP, totalRecovery, surviveTime,
+            atkSpeedMultiplier, critMultiplier, skillMultiplier, doubleMultiplier,
+            regenRecovery, lifestealRecovery, baseRecovery, doubleBonus
+        };
+    }
+
+    // ==================== 화면 업데이트 로직 ====================
+    function updateIndividualResults() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            ['orig', 'new'].forEach(type => {
+                const stats = getStats(type);
+                const result = calculateDetailed(stats);
+
+                // 1. 요약 정보 업데이트
+                const totalRecEl = document.querySelector(`[data-result="total_recovery"][data-type="${type}"]`);
+                if(totalRecEl) totalRecEl.textContent = `총 회복: ${fmt(result.totalRecovery)}/s`;
+                
+                const realDpsEl = document.querySelector(`[data-result="real_dps"][data-type="${type}"]`);
+                if(realDpsEl) realDpsEl.textContent = fmt(result.realDPS);
+                
+                const ehpEl = document.querySelector(`[data-result="effective_hp"][data-type="${type}"]`);
+                if(ehpEl) ehpEl.textContent = fmt(result.effectiveHP);
+                
+                const survEl = document.querySelector(`[data-result="survive_time"][data-type="${type}"]`);
+                if(survEl) survEl.textContent = result.surviveTime > 99999 ? '∞' : Math.round(result.surviveTime) + '초';
+
+                // 2. 계산 과정 업데이트
+                showCalculationSteps(type, stats, result);
+                
+                // 3. 우선순위 업데이트
+                showPriorities(type, stats, result);
+            });
+        }, CONFIG.DEBOUNCE_DELAY);
+    }
+
+    function showCalculationSteps(type, stats, result) {
+        const el = document.querySelector(`[data-calc-steps="${type}"]`);
+        if(!el) return;
+        
+        let html = `<div class="calc-step"><strong>1️⃣ 실제 DPS:</strong> 기본(${fmt(stats.damage)}) × 공속(${result.atkSpeedMultiplier.toFixed(2)}) × 치명(${result.critMultiplier.toFixed(2)}) × 스킬(${result.skillMultiplier.toFixed(2)}) × 더블(${result.doubleMultiplier.toFixed(2)}) = <strong>${fmt(result.realDPS)}</strong></div>`;
+        html += `<div class="calc-step"><strong>2️⃣ 유효 체력:</strong> 체력(${fmt(stats.health)}) ÷ (1 - 블록율) = <strong>${fmt(result.effectiveHP)}</strong></div>`;
+        html += `<div class="calc-step"><strong>3️⃣ 총 회복:</strong> (재생 ${fmt(result.regenRecovery)} + 흡혈 ${fmt(result.lifestealRecovery)}) × 더블보너스 = <strong>${fmt(result.totalRecovery)}/s</strong></div>`;
+        
+        el.innerHTML = html;
+    }
+
+    function showPriorities(type, stats, result) {
+        const el = document.querySelector(`[data-priority-list="${type}"]`);
+        if(!el) return;
+        
+        const priorities = [];
+        const inc = 10; // 10% 증가 기준
+        
+        // DPS 관련
+        if(stats.crit_rate < 80) {
+            const newM = 1 + ((stats.crit_rate+inc)/100)*(stats.crit_dmg/100);
+            const newD = stats.damage * result.atkSpeedMultiplier * newM * result.skillMultiplier * result.doubleMultiplier;
+            priorities.push({ name: '치명타 확률', score: (newD/result.realDPS - 1)*100, label: 'DPS' });
+        }
+        if(stats.atk_speed < 100) {
+            const newM = 1 + ((stats.atk_speed+inc)/100);
+            const newD = stats.damage * newM * result.critMultiplier * result.skillMultiplier * result.doubleMultiplier;
+            priorities.push({ name: '공격 속도', score: (newD/result.realDPS - 1)*100, label: 'DPS' });
+        }
+        // 생존 관련
+        if(stats.block < 60) {
+            const newBlock = Math.min(stats.block + inc, CONFIG.MAX_BLOCK);
+            const newEhp = stats.health / (1 - newBlock/100);
+            priorities.push({ name: '블록 확률', score: (newEhp/result.effectiveHP - 1)*100 * 0.7, label: '생존' });
+        }
+
+        priorities.sort((a,b) => b.score - a.score);
+        
+        el.innerHTML = priorities.slice(0,3).map((p, i) => `
+            <div class="priority-item">
+                <div class="priority-rank">${i+1}</div>
+                <div class="priority-desc">${p.name} +10%</div>
+                <div class="priority-impact">${p.label} +${p.score.toFixed(1)}%</div>
+            </div>
+        `).join('') || '<div style="font-size:12px; text-align:center; color:#999;">분석 데이터 부족</div>';
+    }
+
+    // ==================== 최종 비교 ====================
+    function compareEquipment() {
+        const oStats = getStats('orig');
+        const nStats = getStats('new');
+        const o = calculateDetailed(oStats);
+        const n = calculateDetailed(nStats);
+
+        const updateRow = (key, v1, v2, isTime) => {
+            const t1 = isTime ? (v1>9999?'∞':v1.toFixed(1)+'s') : fmt(v1);
+            const t2 = isTime ? (v2>9999?'∞':v2.toFixed(1)+'s') : fmt(v2);
+            document.querySelector(`[data-res="${key}-orig"]`).innerText = t1;
+            document.querySelector(`[data-res="${key}-new"]`).innerText = t2;
+            
+            const diff = v2 - v1;
+            const el = document.querySelector(`[data-res="${key}-diff"]`);
+            
+            if(isTime) {
+                el.innerText = (v1>9999 || v2>9999) ? '무한' : (diff>0?'+':'') + diff.toFixed(1)+'s';
+            } else {
+                const pct = v1 ? ((diff/v1)*100).toFixed(1) : 0;
+                el.innerText = `${diff>0?'+':''}${fmt(diff)} (${pct}%)`;
+                el.style.color = diff > 0 ? 'var(--success-color)' : (diff < 0 ? '#ffcccc' : 'white');
+            }
+        };
+
+        updateRow('dps', o.realDPS, n.realDPS);
+        updateRow('ehp', o.effectiveHP, n.effectiveHP);
+        updateRow('rec', o.totalRecovery, n.totalRecovery);
+        updateRow('sur', o.surviveTime, n.surviveTime, true);
+
+        let s = 0;
+        if(n.realDPS > o.realDPS) s++;
+        if(n.effectiveHP > o.effectiveHP) s++;
+        if(n.totalRecovery > o.totalRecovery) s++;
+        
+        const recEl = document.getElementById('recommendation');
+        if(s >= 2) recEl.innerText = "🚀 결론: 새 장비가 더 강력합니다!";
+        else if(s === 0) recEl.innerText = "🛡️ 결론: 원래 장비가 더 좋습니다.";
+        else recEl.innerText = "⚖️ 결론: 상황에 따라 다릅니다.";
+
+        document.getElementById('resultSection').classList.add('show');
+        document.getElementById('resultSection').scrollIntoView({behavior:'smooth'});
+    }
+
+    // ==================== OCR 로직 ====================
+    async function processImage(input, type) {
+        const file = input.files[0];
+        if (!file) return;
+
+        const loader = document.getElementById(`loading-${type}`);
+        const status = document.getElementById(`status-${type}`);
+        loader.classList.add('active');
+
+        try {
+            document.querySelectorAll(`input[data-type="${type}"]`).forEach(el => el.value = ''); // 초기화
+            status.innerText = "이미지 분석 중...";
+            const { data: { text } } = await Tesseract.recognize(file, 'kor+eng');
+            parseAndFill(text, type);
+            updateIndividualResults(); // 입력 후 자동 분석 트리거
+            showToast('✅ 인식 완료! 분석이 갱신되었습니다.');
+        } catch (e) {
+            console.error(e);
+            showToast('❌ 이미지 인식 실패');
+        } finally {
+            loader.classList.remove('active');
+            input.value = '';
+        }
+    }
+
+    function parseAndFill(text, type) {
+        const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim());
+        FIELDS.forEach(field => {
+            let foundValue = null;
+            for (let line of lines) {
+                if (!field.keywords.some(k => line.includes(k))) continue;
+                if (field.type === 'prefix') {
+                    const match = line.match(/([\d\.]+)\s*(k|m)/i);
+                    if (match) { foundValue = match[1] + match[2]; break; }
+                } else {
+                    const match = line.match(/([\d\.]+)\s*%/);
+                    if (match) { foundValue = match[1]; break; }
+                }
+            }
+            if (foundValue) {
+                const el = document.querySelector(`input[data-stat="${field.id}"][data-type="${type}"]`);
+                if(el) {
+                    el.value = foundValue;
+                    el.classList.add('flash');
+                    setTimeout(() => el.classList.remove('flash'), 1000);
+                }
+            }
+        });
+    }
+
+    // ==================== 저장/공유/복사 ====================
+    function shareURL() {
+        const params = new URLSearchParams();
+        ['orig', 'new'].forEach(t => {
+            FIELDS.forEach(f => {
+                const val = document.querySelector(`input[data-stat="${f.id}"][data-type="${t}"]`).value;
+                if(val) params.append(`${t}_${f.id}`, val);
+            });
+        });
+        const shareLink = (window.location.protocol === 'file:') 
+            ? `${BASE_URL}/?${params.toString()}` 
+            : `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+        navigator.clipboard.writeText(shareLink).then(() => showToast('🔗 URL 복사 완료!'))
+            .catch(() => prompt("URL 복사:", shareLink));
+    }
+
+    function loadFromURL() {
+        const p = new URLSearchParams(window.location.search);
+        let has = false;
+        ['orig', 'new'].forEach(t => {
+            FIELDS.forEach(f => {
+                const k = `${t}_${f.id}`;
+                if(p.has(k)) {
+                    document.querySelector(`input[data-stat="${f.id}"][data-type="${t}"]`).value = p.get(k);
+                    has = true;
+                }
+            });
+        });
+        if(has) setTimeout(updateIndividualResults, 500);
+    }
+
+    function saveData() { document.getElementById('saveModal').classList.add('show'); }
+    function confirmSave() {
+        const name = document.getElementById('saveName').value;
+        if(!name) return showToast('이름을 입력하세요');
+        const data = { name, date: new Date().toISOString(), orig: getStats('orig'), new: getStats('new') };
+        const saves = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || '[]');
+        saves.unshift(data);
+        localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(saves));
+        document.getElementById('saveModal').classList.remove('show');
+        showToast('💾 저장되었습니다');
+    }
+
+    function showLoadModal() {
+        const saves = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY) || '[]');
+        const list = document.getElementById('savedList');
+        list.innerHTML = saves.length ? '' : '<p style="text-align:center;color:#888;">저장된 설정이 없습니다.</p>';
+        saves.forEach((s, idx) => {
+            const div = document.createElement('div');
+            div.style.cssText = "padding:10px; border-bottom:1px solid #eee; cursor:pointer;";
+            div.innerHTML = `<div style="font-weight:bold;">${s.name}</div><div style="font-size:12px; color:#888;">${new Date(s.date).toLocaleDateString()}</div>`;
+            div.onclick = () => loadSaveData(idx);
+            list.appendChild(div);
+        });
+        document.getElementById('loadModal').classList.add('show');
+    }
+
+    function loadSaveData(idx) {
+        const saves = JSON.parse(localStorage.getItem(CONFIG.STORAGE_KEY));
+        const s = saves[idx];
+        ['orig', 'new'].forEach(t => {
+            FIELDS.forEach(f => {
+                const val = s[t][f.id];
+                if(val !== undefined) document.querySelector(`input[data-stat="${f.id}"][data-type="${t}"]`).value = val;
+            });
+        });
+        updateIndividualResults();
+        document.getElementById('loadModal').classList.remove('show');
+        showToast('📂 설정 불러오기 완료');
+    }
+
+    function copyToNew() {
+        FIELDS.forEach(f => {
+            document.querySelector(`input[data-stat="${f.id}"][data-type="new"]`).value = document.querySelector(`input[data-stat="${f.id}"][data-type="orig"]`).value;
+        });
+        updateIndividualResults(); showToast('→ 복사 완료');
+    }
+    function copyToOrig() {
+        FIELDS.forEach(f => {
+            document.querySelector(`input[data-stat="${f.id}"][data-type="orig"]`).value = document.querySelector(`input[data-stat="${f.id}"][data-type="new"]`).value;
+        });
+        updateIndividualResults(); showToast('← 복사 완료');
+    }
+
+    function resetAll() {
+        document.querySelectorAll('input[type="text"]').forEach(i => i.value = '');
+        document.getElementById('resultSection').classList.remove('show');
+        updateIndividualResults();
+        showToast('🔄 초기화 완료');
+    }
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.innerText = msg;
+        t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2000);
+    }
+
+    init();
+</script>
+</body>
+</html>
